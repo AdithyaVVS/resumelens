@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16
+    container_name: resumelens_db
+    environment:
+      POSTGRES_USER: resumelens
+      POSTGRES_PASSWORD: resumelens
+    ports:
+      - "5435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U resumelens"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  auth:
+    build: ./services/auth
+    container_name: resumelens_auth
+    environment:
+      DATABASE_URL: postgresql+psycopg2://resumelens:resumelens@db:5432/resumelens_auth
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is missing. Create the .env file first.}
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./services/auth:/app
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "9001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  gateway:
+    build: ./services/gateway
+    container_name: resumelens_gateway
+    environment:
+      AUTH_URL: http://auth:8000
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./services/gateway:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "9000:8000"
+    depends_on:
+      - auth
+
+volumes:
+  pgdata:
